@@ -30,6 +30,8 @@
 #include <clif.h>
 #include "version.h"
 #include "traceroute.h"
+#include "ether_util.h"
+
 
 
 #ifndef ICMP6_DST_UNREACH_BEYONDSCOPE
@@ -121,6 +123,13 @@ static int af = 0;
 
 static probe *probes = NULL;
 static unsigned int num_probes = 0;
+
+int is_l2send = 0;		/* using -E option: specify destination mac-address */
+unsigned char dst_mac[6] = {};	/* destination mac-address */
+unsigned char src_mac[6] = {};	/* source mac-address */
+int l2_sock;	/* layer 2 socket file descriptor */
+int interface_index = -1;
+
 
 
 static void ex_error (const char *format, ...) {
@@ -340,6 +349,15 @@ static int set_af (CLIF_option *optn, char *arg) {
 	return 0;
 }
 
+static int set_ether (CLIF_option* optn, char* arg) {
+	is_l2send = 1;		/* enalbe direct routing */
+	if (! conv_macaddress_str_to_bin(arg, dst_mac)) {
+		fprintf(stderr, "ping: wrong value for -E: MAC-address as XX:XX:XX:XX:XX.\n");
+		return -1;
+	}
+	return 0;
+}
+
 static int add_gateway (CLIF_option *optn, char *arg) {
 
 	if (num_gateways >= MAX_GATEWAYS_6) {	/*  127 > 8 ... :)   */
@@ -439,6 +457,7 @@ static CLIF_option option_list[] = {
 	{ "6", 0, 0, "Use IPv6", set_af, (void *) 6, 0, 0 },
 	{ "d", "debug", 0, "Enable socket level debugging",
 			CLIF_set_flag, &debug, 0, 0 },
+	{ "E", "dstmac", "mac_address", "Use direct routing mode", set_ether, 0, 0, 0 },
 	{ "F", "dont-fragment", 0, "Do not fragment packets",
 			CLIF_set_flag, &dontfrag, 0, CLIF_ABBREV },
 	{ "f", "first", "first_ttl", "Start from the %s hop (instead from 1)",
@@ -562,7 +581,6 @@ int main (int argc, char *argv[]) {
 				CLIF_MAY_JOIN_ARG | CLIF_HELP_EMPTY) < 0
 	)  exit (2);
 
-
 	ops = tr_get_module (module);
 	if (!ops)  ex_error ("Unknown traceroute module %s", module);
 
@@ -599,6 +617,24 @@ int main (int argc, char *argv[]) {
 
 	if (src_port || ops->one_per_time)
 		sim_probes = 1;
+
+	if (is_l2send && (device == NULL || src_addr.sin.sin_addr.s_addr == 0)) {
+	    fprintf(stderr, "-E option requres -i <device-name> option and -s <src_addr> option.\n");
+	    exit (2);
+	} else if (is_l2send){
+	    if ((interface_index = get_interface_index(device)) == -1) {
+		fprintf(stderr, "failure to obtain the interface index of %s.\n", device);
+		exit(2);
+	    }
+	    if ((l2_sock = l2_socket(interface_index)) == -1) {
+		fprintf(stderr, "failure to create layer 2 socket.\n");
+		exit(2);
+	    }
+	    if (get_mac_address(device, src_mac) == -1) {
+		fprintf(stderr, "failure to get source mac address of %s.\n", device);
+		exit(2);
+	    }
+	}
 
 
 	/*  make sure we don't std{in,out,err} to open sockets  */
@@ -1478,13 +1514,28 @@ void set_ttl (int sk, int ttl) {
 }
 
 
-int do_send (int sk, const void *data, size_t len, const sockaddr_any *addr) {
+int do_send (int sk, const void *data, size_t len, const sockaddr_any *addr, int ttl) {
 	int res;
 
-	if (!addr || raw_can_connect ())
+	if (!addr || raw_can_connect ()) {
+	    if (is_l2send && af == AF_INET) {
+		if ((strcmp(module, "icmp") == 0)) {
+		    res = sendto_icmp_ipv4_l2(
+			    interface_index, l2_sock, dst_mac, src_mac, 
+			    &addr->sin, &src_addr.sin, data, len, ttl);
+		} else {
+		    fprintf(stderr, "\nSorry, only support IPv4/ICMP on direct routing mode.\n");
+		    exit (2);
+		}
+	    } else if (is_l2send && af == AF_INET6) {
+		fprintf(stderr, "\nSorry, not supported IPv6 on direct routing mode.\n");
+		exit (2);
+	    } else {
 		res = send (sk, data, len, 0);
-	else
+	    }
+	} else {
 	    res = sendto (sk, data, len, 0, &addr->sa, sizeof (*addr));
+	}
 
 	if (res < 0) {
 	    if (errno == ENOBUFS || errno == EAGAIN)

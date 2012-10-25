@@ -112,7 +112,7 @@ static void icmp_send_probe (probe *pb, int ttl) {
 
 	pb->send_time = get_time ();
 
-	if (do_send (icmp_sk, data, *length_p, &dest_addr) < 0) {
+	if (do_send (icmp_sk, data, *length_p, &dest_addr, ttl) < 0) {
 	    pb->send_time = 0;
 	    return;
 	}

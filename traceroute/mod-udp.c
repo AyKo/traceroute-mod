@@ -142,7 +142,7 @@ static void udp_send_probe (probe *pb, int ttl) {
 
 	pb->send_time = get_time ();
 
-	if (do_send (sk, data, *length_p, NULL) < 0) {
+	if (do_send (sk, data, *length_p, NULL, ttl) < 0) {
 	    close (sk);
 	    pb->send_time = 0;
 	    return;

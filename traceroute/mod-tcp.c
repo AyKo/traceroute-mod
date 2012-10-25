@@ -360,7 +360,7 @@ static void tcp_send_probe (probe *pb, int ttl) {
 
 	pb->send_time = get_time ();
 
-	if (do_send (raw_sk, th, th->doff << 2, &dest_addr) < 0) {
+	if (do_send (raw_sk, th, th->doff << 2, &dest_addr, ttl) < 0) {
 	    close (sk);
 	    pb->send_time = 0;
 	    return;

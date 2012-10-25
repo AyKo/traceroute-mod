@@ -79,7 +79,7 @@ void use_timestamp (int sk);
 void use_recv_ttl (int sk);
 void use_recverr (int sk);
 void set_ttl (int sk, int ttl);
-int do_send (int sk, const void *data, size_t len, const sockaddr_any *addr);
+int do_send (int sk, const void *data, size_t len, const sockaddr_any *addr, int ttl);
 
 void add_poll (int fd, int events);
 void del_poll (int fd);
